@@ -33,7 +33,7 @@ private:
         {
             return nullptr;
         }
-        if (mysql_real_connect(ms, "localhost", "K", "k20061635", "DOE_compatibility_test_db", 3306, NULL, 0) == NULL)
+        if (mysql_real_connect(ms, "localhost", "K", "123", "DOE_compatibility_test_db", 3306, NULL, 0) == NULL)
         {
             mysql_close(ms);
             return nullptr;
