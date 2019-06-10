@@ -5,6 +5,7 @@
 #include <string>
 #include <memory>
 #include <time.h>
+#include "mysql/mysql.h"
 
 namespace MysqlUtil
 {
@@ -53,7 +54,7 @@ public:
 			throw "";
 		}
 		
-		return *(uint64_t*)GetPtr();
+		return *(uint64_t*)bin_.c_str();
 	}
 	virtual int64_t toInt() const
 	{
@@ -62,7 +63,7 @@ public:
 			throw "";
 		}
 		
-		return *(int64_t*)GetPtr();
+		return *(int64_t*)bin_.c_str();
 	}
 	virtual double toDouble() const
 	{
@@ -71,7 +72,7 @@ public:
 			throw "";
 		}
 		
-		return *(double*)GetPtr();
+		return *(double*)bin_.c_str();
 	}
 	
 	virtual std::string toString() const
@@ -91,9 +92,9 @@ public:
 		return "";
 	}
 	
-	const void* GetPtr() const 
+	virtual const std::string toMysqlValue() const 
 	{
-		return (const void*)bin_.c_str();
+		return bin_;
 	}
 	
 	size_t size() const {
@@ -102,7 +103,7 @@ public:
 	
 	const ValueType valuetype_;
 	
-private:
+protected:
 
 	bool IsValidInt() const
 	{
@@ -135,6 +136,7 @@ public:
 		SetValue(vll);
 	}
 	
+	IntValue(const void* ptr, size_t len) : value(ptr, len, NumberType) {}
 	IntValue(int64_t v) : value(&v, sizeof(v), NumberType) {}
 	IntValue(uint64_t v) : value(&v, sizeof(v), NumberType) {}
 	IntValue(double v) : value(&v, sizeof(v), NumberType) {}
@@ -178,6 +180,39 @@ public:
 		SetValue(timestamp);
 	}
 
+	TimeValue(MYSQL_TIME* t) : value(TimeType)
+	{
+		struct tm tm = { 0 };
+
+		tm.tm_year = t->year - 1900;
+		tm.tm_mon = t->month - 1;
+		tm.tm_mday = t->day;
+		tm.tm_hour = t->hour;
+		tm.tm_min = t->minute;
+		tm.tm_sec = t->second;
+
+		uint64_t timestamp = (uint64_t)mktime(&tm);
+		SetValue(timestamp);
+	}
+
+	virtual const std::string toMysqlValue() const override
+	{
+		struct tm* t = localtime((time_t*)bin_.c_str());	// 不支持32位程序
+		MYSQL_TIME mt = { 0 };
+		mt.year = t->tm_year + 1900;
+		mt.month = t->tm_mon + 1;
+		mt.day = t->tm_mday;
+		mt.hour = t->tm_hour;
+		mt.minute = t->tm_min;
+		mt.second = t->tm_sec;
+		mt.neg = false;
+		mt.time_type = MYSQL_TIMESTAMP_DATETIME;
+
+		std::string str((char*)& mt, sizeof(mt));
+
+		return str;
+	}
+
 	std::string toTimeString() const override
 	{
 		time_t tstamp = (time_t)toInt();
@@ -216,7 +251,39 @@ static std::shared_ptr<value> _CreateValuePtr(const value& v)
 	return p;
 }
 
+static std::shared_ptr<value> _CreateValuePtr(const void* ptr, size_t len, field_type type)
+{
+	std::shared_ptr<value> p = nullptr;
 
+	switch (type)
+	{
+	case ftTiny:
+	case ftShort:
+	case ftInt24:
+	case ftLong:
+	case ftLonglong:
+	case ftFloat:
+	case ftDouble:
+		p = std::make_shared<IntValue>(ptr, len);
+		break;
+	case ftDatetime:
+	case ftTimestamp:
+		if (len == sizeof(MYSQL_TIME))
+		p = std::make_shared<TimeValue>((MYSQL_TIME*)ptr);
+		break;
+	case ftBlob:
+	case ftMediumBlob:
+	case ftVarString:
+	case ftTinyBlob:
+	case ftString:
+		p = std::make_shared<StringValue>(ptr, len);
+		break;
+	default:
+		p = nullptr;
+	}
+
+	return p;
+}
 
 
 };

@@ -65,7 +65,7 @@ public:
 	AssignmentExp& operator&& (const AssignmentExp& ae)
 	{
 		exp_ = exp_ + "," + ae.exp_;
-		std::for_each(ae.container_.begin(), ae.container_.end(), [&](const auto& e)->void { container_.push_back(e); });
+		std::for_each(ae.container_.begin(), ae.container_.end(), [&](const pair<Field, shared_ptr<value>>& e)->void { container_.push_back(e); });
 		return *this;
 	}
 };
@@ -86,14 +86,14 @@ public:
 	CompareExp& operator&& (const CompareExp& ae)
 	{
 		exp_ = "(" + exp_ + " and " + ae.exp_ + ")";
-		std::for_each(ae.container_.begin(), ae.container_.end(), [&](const auto& e)->void { container_.push_back(e); });
+		std::for_each(ae.container_.begin(), ae.container_.end(), [&](const pair<Field, shared_ptr<value>>& e)->void { container_.push_back(e); });
 		return *this;
 	}
 	
 	CompareExp& operator|| (const CompareExp& ae)
 	{
 		exp_ = "(" + exp_ + " or " + ae.exp_ + ")";
-		std::for_each(ae.container_.begin(), ae.container_.end(), [&](const auto& e)->void { container_.push_back(e); });
+		std::for_each(ae.container_.begin(), ae.container_.end(), [&](const pair<Field, shared_ptr<value>>& e)->void { container_.push_back(e); });
 		return *this;
 	}
 };
