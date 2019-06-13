@@ -1,25 +1,76 @@
 
 
-
+#include "sql_error.h"
 #include "sqlcore.h"
 #include "mysql-conn-pool.h"
 
+#define BUF_MAX_LEN 128
 
 class bindResult
 {
 public:
+	bindResult(enum_field_types& t, unsigned long& maxlen, bool& isunsigned) 
+		: type_(t), max_length_(maxlen), is_unsigned_(isunsigned)
+	{
 
-	bool isNull;
-	uint8_t buff[128];
-	unsigned long length;
+	}
+	enum_field_types& type_;
+	unsigned long& max_length_;
+	bool isNull_;
+	uint8_t buff_[BUF_MAX_LEN];
+	unsigned long length_;
+	bool& is_unsigned_;
+	bool error_;
 };
 
+
+class Binder
+{
+public:
+	Binder(int size) : size_(size)
+	{
+		mb_ = new MYSQL_BIND[size_];
+		space_ = new bindResult*[size_];
+		for (int i = 0; i < size_; i++)
+		{
+			mb_[i].buffer_length = BUF_MAX_LEN;
+			bindResult* e = new bindResult(mb_[i].buffer_type, mb_[i].buffer_length, mb_[i].is_unsigned);
+			mb_[i].is_null = &e->isNull_;
+			mb_[i].length = &e->length_;
+			mb_[i].buffer = e->buff_;
+			mb_[i].error = &e->error_;		// 不给error指定空间，会导致内存破坏
+			space_[i] = e;
+		}	
+	}
+
+	~Binder(){
+		delete[] mb_;
+		for (int i = 0; i < size_; i++)
+		{
+			delete space_[i];
+		}
+		delete[] space_;
+	}
+
+	MYSQL_BIND* get(){ 
+		return mb_;
+	}
+
+private:
+	MYSQL_BIND* mb_;
+	int size_;
+public:
+	bindResult** space_;
+};
 
 
 int insert(const std::string& sqlstatment, const ValueContainer& values)
 {
 	int ret = 0;
 	std::shared_ptr<MYSQL> sqlPtr = mysql_pool::GetInstance()->pl_pick();
+	if (sqlPtr == nullptr){
+		return SQL_ERR_DB_INIT;
+	}
 
 	MYSQL_STMT* stmt = mysql_stmt_init(sqlPtr.get());
 
@@ -29,46 +80,51 @@ int insert(const std::string& sqlstatment, const ValueContainer& values)
 		return -1;
 	}
 
-	std::shared_ptr<MYSQL_BIND> bindPtr(new MYSQL_BIND[values.size()], [](MYSQL_BIND* p)->void { delete[] p; });
+	std::shared_ptr<Binder> bindPtr(new Binder(values.size()));
 
 	int i = 0;
 	for (const auto& element : values)
 	{
 		string value = element.second->toMysqlValue();
 		unsigned long length = value.size();
-		bindPtr.get()[i].buffer_type = (enum_field_types)element.first.Type();
-		bindPtr.get()[i].buffer = (void*)value.c_str();
-		bindPtr.get()[i].is_null = (bool*)0;
-		bindPtr.get()[i].buffer_length = length;
-		bindPtr.get()[i].length = &length;
-		bindPtr.get()[i].is_unsigned = element.first.IsUnsigned();
+
+		memcpy(bindPtr->space_[i]->buff_, value.c_str(), value.size());
+		bindPtr->space_[i]->type_ = (enum_field_types)element.first.Type();
+		bindPtr->space_[i]->max_length_ = length;
+		bindPtr->space_[i]->length_ = length;
+		bindPtr->space_[i]->isNull_ = false;
+		bindPtr->space_[i]->is_unsigned_ = element.first.IsUnsigned();
 		i++;
 	}
 
-	if (!mysql_stmt_bind_param(stmt, bindPtr.get()))
+	if (0 != mysql_stmt_bind_param(stmt, bindPtr->get()))
 	{
-		ret = -1;
+		ret = mysql_stmt_errno(stmt);
 		goto _exit;
 	}
 
-	ret = mysql_stmt_execute(stmt);
-	if (ret != 0)
+	if (mysql_stmt_execute(stmt) != 0)
 	{
+		ret = mysql_stmt_errno(stmt);
+		const char* errdesc = mysql_stmt_error(stmt);
 		goto _exit;
 	}
 
 _exit:
 	mysql_stmt_close(stmt);
-
+	
 	return ret;
 }
 int query(const std::string& sqlstatment, const ValueContainer& values, std::vector<Field> columns, RECORDS& records)
 {
 	int ret = 0;
 	std::shared_ptr<MYSQL> sqlPtr = mysql_pool::GetInstance()->pl_pick();
+	if (sqlPtr == nullptr){
+		return SQL_ERR_DB_INIT;
+	}
 
 	MYSQL_STMT* stmtptr = mysql_stmt_init(sqlPtr.get());
-
+	
 	std::shared_ptr<MYSQL_STMT> stmt(stmtptr, [](MYSQL_STMT* p)->void{ mysql_stmt_close(p); });
 
 	ret = mysql_stmt_prepare(stmt.get(), sqlstatment.c_str(), sqlstatment.size());
@@ -77,36 +133,41 @@ int query(const std::string& sqlstatment, const ValueContainer& values, std::vec
 		return -1;
 	}
 
-	std::shared_ptr<MYSQL_BIND> bindPtr(new MYSQL_BIND[values.size()], [](MYSQL_BIND* p)->void { delete[] p; });
+	std::shared_ptr<Binder> bindPtr(new Binder(values.size()));
 
 	int i = 0;
 	for (const auto& element : values)
 	{
-		string value = element.second->toString();
+		string value = element.second->toMysqlValue();
 		unsigned long length = value.size();
-		bindPtr.get()[i].buffer_type = (enum_field_types)element.first.Type();
-		bindPtr.get()[i].buffer = (void*)value.c_str();
-		bindPtr.get()[i].is_null = (bool*)0;
-		bindPtr.get()[i].buffer_length = value.size();
-		bindPtr.get()[i].length = &length;
-		bindPtr.get()[i].is_unsigned = element.first.IsUnsigned();
+
+		memcpy(bindPtr->space_[i]->buff_, value.c_str(), value.size());
+		bindPtr->space_[i]->type_ = (enum_field_types)element.first.Type();
+		bindPtr->space_[i]->max_length_ = length;
+		bindPtr->space_[i]->length_ = length;
+		bindPtr->space_[i]->isNull_ = false;
+		bindPtr->space_[i]->is_unsigned_ = element.first.IsUnsigned();
 		i++;
 	}
 
-	if (!mysql_stmt_bind_param(stmt.get(), bindPtr.get()))
+	if (0 != mysql_stmt_bind_param(stmt.get(), bindPtr->get()))
 	{
 		return mysql_stmt_errno(stmt.get());
 	}
 
-	if (mysql_stmt_execute(stmt.get()))
+	if (0 != mysql_stmt_execute(stmt.get()))
 	{
 		return mysql_stmt_errno(stmt.get());
 	}
 
 
-	bindPtr.reset(new MYSQL_BIND[columns.size()], [](MYSQL_BIND* p)->void { delete[] p; });
+	bindPtr.reset(new Binder(columns.size()));
+	for (int i = 0; i < columns.size(); i++){
+		bindPtr->space_[i]->type_ = (enum_field_types)columns[i].Type();
+	}
 
-	if (mysql_stmt_bind_result(stmt.get(), bindPtr.get()))
+
+	if (mysql_stmt_bind_result(stmt.get(), bindPtr->get()))
 	{
 		return mysql_stmt_errno(stmt.get());
 	}
@@ -118,27 +179,25 @@ int query(const std::string& sqlstatment, const ValueContainer& values, std::vec
 
 	int count;
 	count = mysql_stmt_num_rows(stmt.get());
-	count = mysql_stmt_field_count(stmt.get());
+	// count = mysql_stmt_field_count(stmt.get());
 
-	std::shared_ptr<bindResult> mem(new bindResult[columns.size()], [](bindResult* p)->void { delete[] p; });
-	while (mysql_stmt_fetch(stmt.get()) == 0)
+	ret = mysql_stmt_fetch(stmt.get());
+	while (ret == 0)
 	{
 		RECORD record;
 		for (int j = 0; j < columns.size(); j++)
 		{
-			bindPtr.get()[j].buffer_type = (enum_field_types)columns[j].Type();
-			bindPtr.get()[j].buffer = mem.get()[j].buff;
-			bindPtr.get()[j].is_null = &mem.get()[j].isNull;
-			bindPtr.get()[j].buffer_length = sizeof(mem.get()[j].buff);
-			bindPtr.get()[j].length = &mem.get()[j].length;
-
-			std::shared_ptr<value> valueptr = _CreateValuePtr(mem.get()[j].buff, mem.get()[j].length, columns[j].Type());
+			std::shared_ptr<value> valueptr = _CreateValuePtr(bindPtr->space_[j]->buff_, 
+				bindPtr->space_[j]->length_, columns[j].Type());
 			std::pair<Field, std::shared_ptr<value>> p(columns[j], valueptr);
 			record.push_back(std::move(p));
 		}
 		records.push_back(std::move(record));
+		ret = mysql_stmt_fetch(stmt.get());
 	}
 	
+	const char* p = mysql_stmt_error(stmt.get());
+
 	if (records.size() != count)
 	{
 		records.clear();

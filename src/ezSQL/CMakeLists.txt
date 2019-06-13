@@ -9,6 +9,7 @@ include_directories(core)
 add_library(MYSQLUTIL STATIC 
 			${COMMANDSRC}
 			${COMMONSRC}
+			${POOLSRC}
 			core/sqlcore.cpp
 			core/sqlcore.h
 			sqloperator.cpp
@@ -17,4 +18,5 @@ add_library(MYSQLUTIL STATIC
 target_link_libraries(MYSQLUTIL tinyxml 
 								#pthread
 								mysqlclient
+								pthread
 								)

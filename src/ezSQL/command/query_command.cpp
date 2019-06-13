@@ -4,7 +4,7 @@
 #include "easysql/sqlcommand.h"
 #include "gensql.h"
 
-
+#include "sqlcore.h"
 
 
 
@@ -42,13 +42,20 @@ int SQLQuery::Execute()
 	
 	std::string sqlString = StatementGen::GenQuerySQL(table_->tableName_, condition_, results_);
 
+	int ret = query(sqlString, condition_.container_, results_, records_);
+	if (ret != 0)
+	{
+		return ret;
+	}
 	results_ = table_->GetFields();
 
 	return SQL_OK;
 }
-RECORDS SQLQuery::GetResult()
+
+
+const RECORDS& SQLQuery::GetResult() const
 {
-	return RECORDS();
+	return records_;
 }
 
 };

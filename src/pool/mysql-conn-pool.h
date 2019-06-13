@@ -1,8 +1,10 @@
 
 #pragma once
 
+#include <iostream>
 #include <mysql/mysql.h>
 #include "conn-pool.h"
+#include "dbconfig.h"
 
 using namespace pool;
 
@@ -12,33 +14,40 @@ public:
 
     static mysql_pool* GetInstance()
     {
-		m_instance.init();
         return &m_instance;
     }
 
-    static bool DestoryInstance()
-    {
-		m_instance.uninit();
-        return true;
-    }
 private:
     
-    mysql_pool(int pool_size) : common_pool<MYSQL>(pool_size) {}
-
+    mysql_pool(int pool_size) : common_pool<MYSQL>(pool_size) {
+        m_instance.init();
+    }
+    ~mysql_pool() {
+		m_instance.uninit();
+    }
 private:
     virtual shared_ptr<MYSQL> createRes() override
     {
+		db_config_t config;
         MYSQL* ms = mysql_init(NULL);
         if (ms == NULL)
         {
             return nullptr;
         }
-        if (mysql_real_connect(ms, "localhost", "K", "123", "DOE_compatibility_test_db", 3306, NULL, 0) == NULL)
+		shared_ptr<MYSQL> mysqlPtr(ms, [](MYSQL* ms)->void { mysql_close(ms); });
+
+		if (load_config(config) != 0)
+		{
+			return nullptr;
+		}
+
+        if (mysql_real_connect(ms, config.host.c_str(), config.user.c_str(), config.pwd.c_str(), 
+							   config.dbName.c_str(), config.port, NULL, 0) == NULL)
         {
-            mysql_close(ms);
             return nullptr;
         }
-        return shared_ptr<MYSQL>(ms, [](MYSQL* ms)->void{ mysql_close(ms); });
+
+        return mysqlPtr;
     }
 
 private:

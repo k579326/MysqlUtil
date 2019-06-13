@@ -38,6 +38,7 @@ int SQLInsert::Execute()
 
 	std::string sqlString = StatementGen::GenInsertSQL(table_->tableName_, exp);
 
+	insert(sqlString, exp.container_);
 	// TODO:
 	return SQL_OK;
 }

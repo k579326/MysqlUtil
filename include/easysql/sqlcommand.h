@@ -80,10 +80,10 @@ public:
 	void SetTable(SQLTable* table) override;
 	void Reset() override;
 	int Execute() override;
-	RECORDS GetResult();
+	const RECORDS& GetResult() const;
 
 private:
-
+	RECORDS records_;
 	CompareExp condition_;
 	std::vector<Field> results_;
 	SQLTable* table_;
