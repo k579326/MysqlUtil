@@ -22,7 +22,7 @@ int main()
 				 Bind(UserInfo.testVersion, IntValue(10))
 				 );
 	
-	//si.Execute();
+	si.Execute();
 	t_licKey* lk = (t_licKey*)&t_licKey::GetInstance();
 	SQLQuery squery(lk);
 	squery.SetResultFields(lk->createTime, lk->endTime);
@@ -35,8 +35,11 @@ int main()
     
 	su.SetResultFields(UserInfo.createTime, UserInfo.testVersion);
 	su.SetCondition(UserInfo.appId == StringValue("11111") || UserInfo.srcId == StringValue("2222"));
-	//su.Execute();
+	su.Execute();
 	RECORDS resList = su.GetResult();
+
+	cout << "createTime:" << resList[0][0].second->toTimeString() << endl;
+	cout << "endTime:" << resList[0][1].second->toInt() << endl;
 
     return 0;
 }
