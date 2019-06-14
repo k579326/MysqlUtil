@@ -2,7 +2,6 @@
 
 #include "sql_error.h"
 #include "sqlcore.h"
-#include "mysql-conn-pool.h"
 
 #define BUF_MAX_LEN 128
 
@@ -64,15 +63,14 @@ public:
 };
 
 
-int insert(const std::string& sqlstatment, const ValueContainer& values)
+int insert(MYSQL* mysql, const std::string& sqlstatment, const ValueContainer& values)
 {
 	int ret = 0;
-	std::shared_ptr<MYSQL> sqlPtr = mysql_pool::GetInstance()->pl_pick();
-	if (sqlPtr == nullptr){
+	if (mysql == nullptr){
 		return SQL_ERR_DB_INIT;
 	}
 
-	MYSQL_STMT* stmt = mysql_stmt_init(sqlPtr.get());
+	MYSQL_STMT* stmt = mysql_stmt_init(mysql);
 
 	ret = mysql_stmt_prepare(stmt, sqlstatment.c_str(), sqlstatment.size());
 	if (ret != 0)
@@ -115,15 +113,11 @@ _exit:
 	
 	return ret;
 }
-int query(const std::string& sqlstatment, const ValueContainer& values, std::vector<Field> columns, RECORDS& records)
+int query(MYSQL* mysql, const std::string& sqlstatment, const ValueContainer& values, std::vector<Field> columns, RECORDS& records)
 {
 	int ret = 0;
-	std::shared_ptr<MYSQL> sqlPtr = mysql_pool::GetInstance()->pl_pick();
-	if (sqlPtr == nullptr){
-		return SQL_ERR_DB_INIT;
-	}
-
-	MYSQL_STMT* stmtptr = mysql_stmt_init(sqlPtr.get());
+	
+	MYSQL_STMT* stmtptr = mysql_stmt_init(mysql);
 	
 	std::shared_ptr<MYSQL_STMT> stmt(stmtptr, [](MYSQL_STMT* p)->void{ mysql_stmt_close(p); });
 
@@ -196,7 +190,7 @@ int query(const std::string& sqlstatment, const ValueContainer& values, std::vec
 		ret = mysql_stmt_fetch(stmt.get());
 	}
 	
-	const char* p = mysql_stmt_error(stmt.get());
+	// const char* p = mysql_stmt_error(stmt.get());
 
 	if (records.size() != count)
 	{

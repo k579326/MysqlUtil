@@ -5,6 +5,8 @@
 #include "gensql.h"
 #include "sqlcore.h"
 
+#include "mysql-conn-pool.h"
+
 namespace MysqlUtil
 {
 
@@ -38,8 +40,20 @@ int SQLInsert::Execute()
 
 	std::string sqlString = StatementGen::GenInsertSQL(table_->tableName_, exp);
 
-	insert(sqlString, exp.container_);
-	// TODO:
+	shared_ptr<MYSQL> SQLptr = mysql_pool::GetInstance()->pl_pick();
+	if (SQLptr == nullptr)
+	{
+		return SQL_ERR_DB_INIT;
+	}
+	
+	int ret = insert(SQLptr.get(), sqlString, exp.container_);
+	mysql_pool::GetInstance()->pl_back(std::move(SQLptr));
+	
+	if (ret != 0)
+	{
+		return ret;
+	}
+
 	return SQL_OK;
 }
 

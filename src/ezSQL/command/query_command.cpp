@@ -5,7 +5,7 @@
 #include "gensql.h"
 
 #include "sqlcore.h"
-
+#include "mysql-conn-pool.h"
 
 
 namespace MysqlUtil
@@ -42,7 +42,15 @@ int SQLQuery::Execute()
 	
 	std::string sqlString = StatementGen::GenQuerySQL(table_->tableName_, condition_, results_);
 
-	int ret = query(sqlString, condition_.container_, results_, records_);
+	shared_ptr<MYSQL> SQLptr = mysql_pool::GetInstance()->pl_pick();
+	if (SQLptr == nullptr)
+	{
+		return SQL_ERR_DB_INIT;
+	}
+
+	int ret = query(SQLptr.get(), sqlString, condition_.container_, results_, records_);
+	mysql_pool::GetInstance()->pl_back(std::move(SQLptr));
+
 	if (ret != 0)
 	{
 		return ret;
